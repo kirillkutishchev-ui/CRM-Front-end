@@ -29,6 +29,7 @@ $em = $container->getByClass(EntityManager::class);
 $admin = $em->getRDBRepository('User')->where(['type' => 'admin', 'isActive' => true])->findOne();
 $container->getByClass(ApplicationUser::class)->setUser($admin);
 $factory = $app->getInjectableFactory();
+$siteUrl = rtrim((string) $container->getByClass(\Espo\Core\Utils\Config::class)->get('siteUrl'), '/');
 $checks = 0;
 $assert = function (bool $condition, string $message) use (&$checks): void {
     if (!$condition) {
@@ -39,7 +40,7 @@ $assert = function (bool $condition, string $message) use (&$checks): void {
 $rollback = new RuntimeException('ROLLBACK_TEST_FIXTURES');
 
 try {
-    $em->getTransactionManager()->run(function () use ($em, $factory, $admin, $assert, $rollback): void {
+    $em->getTransactionManager()->run(function () use ($em, $factory, $admin, $assert, $rollback, $siteUrl): void {
         $suffix = bin2hex(random_bytes(5));
         $createUser = function (string $type, array $extra = []) use ($em, $suffix) {
             $user = $em->getNewEntity('User');
@@ -219,7 +220,8 @@ try {
             'Invitation uses a 32-character cryptographically random URL-safe token.'
         );
         $assert(
-            str_contains((string) $invite->get('registrationUrl'), '/?entryPoint=studioRegister#' . $invite->get('token')),
+            (string) $invite->get('registrationUrl') ===
+                $siteUrl . '/?entryPoint=studioRegister#' . $invite->get('token'),
             'Invitation uses the configured domain and keeps the secret in the URL fragment.'
         );
         $registration = $factory->create(RegistrationService::class);
@@ -242,14 +244,15 @@ try {
         $legacyInvite->set(['accountType' => 'Model', 'targetRoleId' => $role->getId()]);
         $em->saveEntity($legacyInvite);
         $legacyToken = bin2hex(random_bytes(32));
-        $legacyUrl = preg_replace('/#.*$/', '#access=' . $legacyToken, (string) $legacyInvite->get('registrationUrl'));
+        $legacyUrl = 'https://wesperr.studio/?entryPoint=studioRegister#access=' . $legacyToken;
         $legacyInvite->set(['token' => $legacyToken, 'registrationUrl' => $legacyUrl]);
         $em->saveEntity($legacyInvite, ['skipBeforeSave' => true]);
         $factory->create(RegistrationLinkMigration::class)->run();
         $migrated = $em->getEntityById('SmRegistrationLink', $legacyInvite->getId());
         $assert($migrated->get('token') === $legacyToken &&
-            str_ends_with((string) $migrated->get('registrationUrl'), '#' . $legacyToken),
-            'Migration preserves previously issued 64-character secrets.');
+            (string) $migrated->get('registrationUrl') ===
+                $siteUrl . '/?entryPoint=studioRegister#' . $legacyToken,
+            'Migration moves an existing link to the configured domain and preserves its secret.');
         $assert(($registration->getInvitationInfo($legacyToken)['mode'] ?? null) === 'register',
             'Legacy token still opens registration.');
         $legacyAccount = $registration->register($legacyToken, 'old-' . $suffix . '@example.invalid',

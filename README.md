@@ -103,7 +103,7 @@ cannot be used to authenticate another account.
 
 For production, copy `.env.production.example` to `.env`, replace every
 `GENERATE_...` / `CHANGE_ME_...` value, create an A/AAAA record for the
-administrator hostname (for example `wesperr.studio`), and enforce HTTPS. An
+administrator hostname (for example `UcfgcINdRftUIqOv.wesperr.studio`), and enforce HTTPS. An
 MX record is only for mail and does not control web access. Keep real passwords
 and IP addresses in the untracked `.env` file or in the deployment platform's
 secret storage.

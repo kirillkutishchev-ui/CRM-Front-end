@@ -3,6 +3,12 @@ set -eu
 
 # Runs after the official install/migrate and environment configuration,
 # including the very first boot with empty volumes. Keep JSON values typed.
+if [ -n "${ESPOCRM_SITE_URL:-}" ]; then
+    # The official image only consumes ESPOCRM_SITE_URL during installation.
+    # Re-apply it on every boot so an existing installation and its saved links
+    # move to the configured hostname without recreating the data volume.
+    bin/command config:set siteUrl "$ESPOCRM_SITE_URL"
+fi
 bin/command config:set applicationName onlineCRM
 bin/command config:set theme StudioDark
 bin/command config:set themeParams '{"navbar":"side"}' --type=json
