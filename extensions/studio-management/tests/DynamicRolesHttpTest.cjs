@@ -47,8 +47,18 @@ async function login(type, role) {
         {token: link.token, email, fullName: prefix + ' ' + type, password});
     track('User', {id: registration.userId});
     const basic = Buffer.from(email + ':' + password).toString('base64');
+    check(registration.mode === 'pending', type + ': registration enters approval');
+    const pendingLink = await request('StudioManagement/invitation', 'GET', undefined,
+        {'X-Studio-Access-Token': link.token});
+    check(pendingLink.status === 200 && pendingLink.data.mode === 'pending',
+        type + ': the personal link shows pending approval');
+    const blocked = await request('App/user', 'GET', undefined, {...headers,
+        Authorization: 'Basic ' + basic, 'Espo-Authorization': basic, 'X-Studio-Access-Token': link.token});
+    check(blocked.status === 502, type + ': login is blocked before recruiter completion');
+    await ok('StudioManagement/onboarding/' + registration.userId + '/complete', 'POST', {});
     const session = await ok('App/user', 'GET', undefined, {...headers,
         Authorization: 'Basic ' + basic, 'Espo-Authorization': basic, 'X-Studio-Access-Token': link.token});
+    check(session.user.id === registration.userId, type + ': the same password and link work after activation');
     const token = Buffer.from(email + ':' + session.token).toString('base64');
     return {id: registration.userId, headers: {...headers, Authorization: 'Basic ' + token,
         'Espo-Authorization': token, 'Espo-Authorization-By-Token': 'true'}};

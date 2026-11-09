@@ -3,10 +3,14 @@
         <div class="panel panel-default">
             <div class="panel-heading">
                 <h4 class="panel-title">
+                    {{#if isPending}}
+                        {{translate 'Pending Approval' scope='SmRegistrationLink'}}
+                    {{else}}
                     {{#if isLogin}}
                         {{translate 'Log in'}}
                     {{else}}
                         {{translate 'Registration' scope='SmRegistrationLink'}}
+                    {{/if}}
                     {{/if}}
                 </h4>
             </div>
@@ -14,6 +18,11 @@
                 {{#if notFound}}
                     <p class="text-danger">{{translate 'linkUnavailable' category='messages' scope='SmRegistrationLink'}}</p>
                 {{else}}
+                    {{#if isPending}}
+                    <p class="text-warning registration-pending-message" role="status">
+                        {{translate 'registrationPending' category='messages' scope='SmRegistrationLink'}}
+                    </p>
+                    {{else}}
                     {{#if isRegistration}}
                     <p class="text-muted">
                         {{translate 'Account Type' scope='SmRegistrationLink'}}: <strong>{{accountType}}</strong><br>
@@ -68,6 +77,7 @@
                     {{/if}}
                     <p class="login-message" style="margin-top: 15px"></p>
                         {{/if}}
+                    {{/if}}
                     {{/if}}
                 {{/if}}
             </div>

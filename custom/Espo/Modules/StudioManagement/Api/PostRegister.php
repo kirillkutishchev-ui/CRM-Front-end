@@ -27,6 +27,7 @@ final class PostRegister implements Action
 
         return ResponseComposer::json([
             'success' => true,
+            'mode' => 'pending',
             'userId' => $user->getId(),
             'userName' => $user->getUserName(),
         ]);

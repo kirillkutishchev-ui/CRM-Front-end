@@ -19,6 +19,7 @@ use Espo\Core\Api\RequestWrapper;
 use Espo\Modules\StudioManagement\Api\GetModelShiftDefaults;
 use GuzzleHttp\Psr7\ServerRequest;
 use Espo\Modules\StudioManagement\Tools\AccountTypeResolver;
+use Espo\Modules\StudioManagement\Tools\AccountOnboarding;
 use Espo\Modules\StudioManagement\Tools\ModelShiftDefaults;
 use Espo\Modules\StudioManagement\Tools\ShiftService;
 use Espo\Modules\StudioManagement\Tools\StaffService;
@@ -332,7 +333,11 @@ try {
         }
 
         $legacyInvite = $em->getNewEntity('SmRegistrationLink');
-        $legacyInvite->set(['accountType' => 'Model', 'targetRoleId' => $role->getId()]);
+        $legacyInvite->set([
+            'accountType' => 'Model',
+            'targetRoleId' => $role->getId(),
+            'recruiterId' => $recruiter->getId(),
+        ]);
         $em->saveEntity($legacyInvite);
         $legacyToken = bin2hex(random_bytes(32));
         $legacyUrl = preg_replace('/#.*$/', '#access=' . $legacyToken, (string) $legacyInvite->get('registrationUrl'));
@@ -348,8 +353,75 @@ try {
         $legacyAccount = $registration->register($legacyToken, 'old-' . $suffix . '@example.invalid',
             'Legacy Account', 'LegacyFixture-Strong7');
         $assert($legacyAccount->get('smAccountType') === 'Model', 'Legacy token still registers the intended account type.');
+        $assert($legacyAccount->get('smRecruiterId') === $recruiter->getId() &&
+            (bool) $legacyAccount->get(AccountOnboarding::PENDING) && !$legacyAccount->isActive(),
+            'Registration creates an inactive pending account assigned to the recruiter from the link.');
+        $assert((bool) $em->getRDBRepository('User')->getRelation($legacyAccount, 'roles')
+            ->where(['id' => $role->getId()])->findOne(), 'Registration assigns the role from the link.');
+        $storedLegacyInvite = $em->getEntityById('SmRegistrationLink', $legacyInvite->getId());
+        $assert($storedLegacyInvite->get('usedByUserId') === $legacyAccount->getId() && $storedLegacyInvite->get('isUsed'),
+            'The used link is bound to the pending account in the registration transaction.');
+        $assert(($registration->getInvitationInfo($legacyToken)['mode'] ?? null) === 'pending',
+            'A used link reports pending before checking whether its account is active.');
+        $onboarding = $factory->create(AccountOnboarding::class);
+        $recruiterQueueIds = array_column($onboarding->getList($recruiter, 0)['list'], 'id');
+        $assert(in_array($legacyAccount->getId(), $recruiterQueueIds, true),
+            'The pending model appears in its assigned recruiter queue.');
+        $legacyUserCount = $em->getRDBRepository('User')->where(['userName' => $legacyAccount->getUserName()])->count();
+        try {
+            $registration->register($legacyToken, 'duplicate-' . $suffix . '@example.invalid',
+                'Duplicate Account', 'DuplicateFixture-Strong7');
+            $assert(false, 'A used link must never create a second account.');
+        } catch (Conflict) {
+            $assert($em->getRDBRepository('User')->where(['userName' => $legacyAccount->getUserName()])->count() === $legacyUserCount,
+                'Repeated submission keeps the original pending account only.');
+        }
+        $legacyPasswordHash = $legacyAccount->get('password');
+        $onboarding->save($recruiter, $legacyAccount->getId(), new stdClass(), true);
+        $legacyAccount = $em->getEntityById('User', $legacyAccount->getId());
+        $assert(!$legacyAccount->get(AccountOnboarding::PENDING) && $legacyAccount->isActive(),
+            'Completing onboarding activates the account and clears pending status.');
+        $assert($legacyAccount->get('password') === $legacyPasswordHash,
+            'Completing onboarding preserves the original password hash.');
         $assert(($registration->getInvitationInfo($legacyToken)['mode'] ?? null) === 'login',
-            'Legacy token becomes the same account login link after registration.');
+            'The same token becomes the account login link after activation.');
+
+        $operatorInvite = $em->getNewEntity('SmRegistrationLink');
+        $operatorInvite->set([
+            'accountType' => 'Operator',
+            'targetRoleId' => $role->getId(),
+            'recruiterId' => $recruiter->getId(),
+        ]);
+        $em->saveEntity($operatorInvite);
+        $operatorToken = (string) $operatorInvite->get('token');
+        $pendingOperator = $registration->register($operatorToken,
+            'pending-operator-' . $suffix . '@example.invalid', 'Pending Operator', 'OperatorFixture-Strong7');
+        $assert($pendingOperator->get('smAccountType') === 'Operator' &&
+            $pendingOperator->get('smRecruiterId') === $recruiter->getId() &&
+            (bool) $pendingOperator->get(AccountOnboarding::PENDING) && !$pendingOperator->isActive(),
+            'A second account type enters the assigned recruiter queue with the independently selected role.');
+        $assert(($registration->getInvitationInfo($operatorToken)['mode'] ?? null) === 'pending',
+            'The second account type also exposes the pending link state.');
+        $recruiterQueueIds = array_column($onboarding->getList($recruiter, 0)['list'], 'id');
+        $assert(in_array($pendingOperator->getId(), $recruiterQueueIds, true),
+            'The pending operator also appears in its assigned recruiter queue.');
+        $onboarding->save($recruiter, $pendingOperator->getId(), new stdClass(), true);
+        $pendingOperator = $em->getEntityById('User', $pendingOperator->getId());
+        $assert($pendingOperator->isActive() && !$pendingOperator->get(AccountOnboarding::PENDING) &&
+            ($registration->getInvitationInfo($operatorToken)['mode'] ?? null) === 'login',
+            'The assigned recruiter can complete the second account type and preserve its personal link.');
+
+        $existingAccountLink = $em->getNewEntity('SmRegistrationLink');
+        $existingAccountLink->set(['accountType' => 'Model', 'targetRoleId' => $role->getId()]);
+        $em->saveEntity($existingAccountLink);
+        $existingAccountLink->set([
+            'isUsed' => true,
+            'usedAt' => gmdate('Y-m-d H:i:s'),
+            'usedByUserId' => $model->getId(),
+        ]);
+        $em->saveEntity($existingAccountLink);
+        $assert(($registration->getInvitationInfo((string) $existingAccountLink->get('token'))['mode'] ?? null) === 'login',
+            'Existing active accounts and their links retain the previous login behavior.');
         foreach (['Operator', 'ProducerAdmin', 'TechnicalDirector', 'Recruiter'] as $allowedType) {
             $allowedRole = $em->getNewEntity('Role');
             $allowedRole->set(['name' => 'Registration ' . $allowedType . ' ' . $suffix, 'smAccountType' => $allowedType]);

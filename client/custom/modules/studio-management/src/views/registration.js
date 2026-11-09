@@ -8,6 +8,7 @@ define(['view'], function (View) {
             return {
                 notFound: this.options.notFound,
                 isRegistration: mode === 'register',
+                isPending: mode === 'pending',
                 isLogin: mode === 'login',
                 accountType: this.options.invitation?.accountType || '',
                 roleName: this.options.invitation?.roleName || '',
@@ -129,8 +130,7 @@ define(['view'], function (View) {
                 });
 
                 this.options.invitation = {
-                    mode: 'login',
-                    userName: response.userName,
+                    mode: 'pending',
                     displayName: fullName,
                 };
                 this.options.justRegistered = true;

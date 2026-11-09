@@ -35,7 +35,18 @@ final class RegistrationService
             $userId = $invitation->get('usedByUserId');
             $user = is_string($userId) ? $this->entityManager->getEntityById('User', $userId) : null;
 
-            if (!$user instanceof User || !$user->isActive() || !$user->isRegular()) {
+            if (!$user instanceof User || !$user->isRegular()) {
+                return null;
+            }
+
+            if ($user->get(AccountOnboarding::PENDING)) {
+                return [
+                    'mode' => 'pending',
+                    'displayName' => (string) $user->get('name'),
+                ];
+            }
+
+            if (!$user->isActive()) {
                 return null;
             }
 
@@ -125,12 +136,12 @@ final class RegistrationService
                         'firstName' => $firstName,
                         'lastName' => $lastName,
                         'type' => User::TYPE_REGULAR,
-                        'isActive' => true,
                         'password' => $this->passwordHash->hash($password),
                         'smAccountType' => $invitation->get('accountType'),
                         'smRecruiterId' => $invitation->get('recruiterId'),
                     ]);
 
+                    AccountOnboarding::prepare($user);
                     $this->entityManager->saveEntity($user);
 
                     $this->entityManager

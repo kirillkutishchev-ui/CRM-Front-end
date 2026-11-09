@@ -178,6 +178,15 @@ async function cleanup(list) {
             fullName: 'Тест оператор со входом', password});
         fixtures.push(['User', registration.userId]);
         const credentials = Buffer.from(email + ':' + password).toString('base64');
+        expect(registration.mode === 'pending', 'Registration returns the pending approval state.');
+        const pendingInvitation = await request('StudioManagement/invitation', 'GET', undefined,
+            {'X-Studio-Access-Token': invite.token});
+        expect(pendingInvitation.status === 200 && pendingInvitation.data.mode === 'pending',
+            'Reopening the personal link shows pending approval.');
+        const blockedLogin = await request('App/user', 'GET', undefined, {...headers, Authorization: 'Basic ' + credentials,
+            'Espo-Authorization': credentials, 'X-Studio-Access-Token': invite.token});
+        expect(blockedLogin.status === 502, 'Pending personal-link login returns HTTP 502.');
+        await ok('StudioManagement/onboarding/' + registration.userId + '/complete', 'POST', {});
         const login = await request('App/user', 'GET', undefined, {...headers, Authorization: 'Basic ' + credentials,
             'Espo-Authorization': credentials, 'X-Studio-Access-Token': invite.token});
         expect(login.status === 200 && login.data.user?.id === registration.userId, 'Operator personal-link login works.');

@@ -65,6 +65,11 @@ async function create(type, data, headers) { return track(type, await ok(type, '
         {token: link.token, email, fullName: prefix + ' Operator', password});
     track('User', {id: registration.userId});
     const basic = Buffer.from(email + ':' + password).toString('base64');
+    check(registration.mode === 'pending', 'Registration waits for profile completion');
+    const blocked = await request('App/user', 'GET', undefined, {...admin,
+        Authorization: 'Basic ' + basic, 'Espo-Authorization': basic, 'X-Studio-Access-Token': link.token});
+    check(blocked.status === 502, 'Pending account login returns HTTP 502');
+    await ok('StudioManagement/onboarding/' + registration.userId + '/complete', 'POST', {});
     const session = await ok('App/user', 'GET', undefined, {...admin,
         Authorization: 'Basic ' + basic, 'Espo-Authorization': basic, 'X-Studio-Access-Token': link.token});
     check(session.user.type === 'regular', 'Test account is not a native admin');

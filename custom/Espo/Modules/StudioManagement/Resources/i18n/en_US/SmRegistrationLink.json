@@ -2,6 +2,7 @@
   "labels": {
     "Create SmRegistrationLink": "Create Registration Link",
     "Registration": "Registration",
+    "Pending Approval": "Pending Approval",
     "Account Type": "Account Type",
     "Target Role": "Target Role",
     "Expires At": "Expires At",
@@ -21,6 +22,7 @@
     "allFieldsRequired": "Complete all required fields.",
     "passwordsDoNotMatch": "Passwords do not match.",
     "registrationComplete": "Registration completed. You can now sign in.",
+    "registrationPending": "Registration submitted. Sign-in will become available after the recruiter completes your profile.",
     "registrationFailed": "Registration failed. Check the entered data.",
     "linkUnavailable": "This personal link is invalid, expired or disabled.",
     "loginFailed": "Wrong password or access through this link is not allowed.",

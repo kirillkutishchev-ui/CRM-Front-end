@@ -202,6 +202,15 @@ let checks = 0;
     assert.equal(registration.consumeTokenFromLocation(), 'a'.repeat(64));
     checks++;
 
+    registration.options = {invitation: {mode: 'pending', displayName: 'Pending User'}};
+    assert.equal(registration.data().isPending, true);
+    assert.equal(registration.data().isRegistration, false);
+    assert.equal(registration.data().isLogin, false);
+    const registrationTemplate = fs.readFileSync(path.join(root,
+        'client/custom/modules/studio-management/res/templates/registration.tpl'), 'utf8');
+    assert.match(registrationTemplate, /registrationPending/);
+    checks += 4;
+
     // A personal-link login must leave the no-router entry point before F5.
     const events = [];
     const redirects = [];
