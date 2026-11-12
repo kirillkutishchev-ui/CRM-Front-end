@@ -17,10 +17,20 @@ define(['views/fields/attachment-multiple'], function (AttachmentMultiple) {
             const ids = this.model.get(this.name + 'Ids') || [];
             const names = this.model.get(this.name + 'Names') || {};
             const types = this.model.get(this.name + 'Types') || {};
+            const optimized = this.model.get('screenshotOptimizations') || {};
+            this.element.querySelectorAll('img[src]').forEach(image => {
+                const url = new URL(image.getAttribute('src'), window.location.href);
+                const id = url.searchParams.get('id');
+                if (ids.includes(id) && optimized[id]) {
+                    image.dataset.originalAttachmentId = id;
+                    url.searchParams.set('id', optimized[id]);
+                    image.src = url.toString();
+                }
+            });
             // In edit mode the native upload field renders plain images inside spans.
             this.element.querySelectorAll('img').forEach(image => {
                 if (image.closest('a')) return;
-                const id = new URL(image.getAttribute('src'), window.location.href).searchParams.get('id');
+                const id = image.dataset.originalAttachmentId || new URL(image.getAttribute('src'), window.location.href).searchParams.get('id');
                 if (!ids.includes(id)) return;
                 const link = document.createElement('a');
                 link.href = this.getBasePath() + '?entryPoint=image&id=' + encodeURIComponent(id);

@@ -97,6 +97,63 @@ The standard login page is reserved for administrators and is shown only when bo
 
 ## Analytics
 
+### RabbitMQ and heavy work
+
+Studio-wide analytics, shift screenshot processing and final approval use the transactional
+outbox `SmMqTask`. The API commits the task to MariaDB before a separate
+publisher sends a persistent message to RabbitMQ. Analytics results are read
+through the authenticated task-status endpoint; the browser polls this
+endpoint and never receives another user's result. Operator/model personal
+metrics remain synchronous because they are small and user-scoped.
+
+Shift submission queues validation of uploaded screenshot bytes, MIME type,
+dimensions, size and current attachment/shift access. The status transition to
+Review and creation of this task occur in one database transaction. Valid PNG
+images receive separate lossless compressed attachments when smaller, with
+stable identifiers for retries; original screenshots are preserved. JPEG,
+WebP and GIF are validated without re-encoding. Compression does not reduce
+the initial upload traffic or replace the source screenshot collection.
+
+Final approval queues an `operation=approve` task and returns HTTP 202. The UI
+polls the task endpoint before showing success. The worker checks the current
+reviewer's native and Studio permissions, processes the screenshots, and
+commits the snapshot, expense rows, payout flags, Closed status, completed
+task and completion-notification outbox in one transaction. Repeated pending
+approval requests reuse an identical task or reject conflicting input. User
+creation, authentication and role assignment keep their synchronous behavior.
+
+The worker loads the stored outbox payload and security context instead of
+trusting fields from an incoming broker message. Delivery is persistent,
+successful processing is acknowledged explicitly, and duplicate completed
+tasks are ignored. Publication uses confirms plus nack/return handling while
+holding the outbox row lock. Worker execution also holds that row lock so
+parallel deliveries cannot run the same task concurrently. A transient
+failure returns to the MariaDB outbox as `Queued` with a future `availableAt`;
+the publisher retries it after `MQ_RETRY_DELAY_MS`. Final failures go to
+`crm.dlx`. A manual retry creates a corrected copy and keeps the
+failed original immutable. No Supervisor process policy is used; each worker
+is a dedicated Compose service with Docker restart and health policies.
+
+Static regression check:
+
+```sh
+node extensions/studio-management/tests/RabbitMqArchitectureTest.cjs
+```
+
+The Docker runtime installs the official `php-amqplib/php-amqplib` package in
+a dedicated Composer build stage and loads its generated autoloader from the
+module binding. A ZIP installed into an unrelated non-Docker EspoCRM instance
+must provide the same Composer dependency in that application's runtime.
+
+The local RabbitMQ test installation uses the ignored `.env.mq-local` file,
+image `studio-crm:mq-local`, explicit project `crm-rabbitmq-local` and separate
+volumes. CRM is on ports 8098/8099; RabbitMQ Management binds to loopback 15673.
+Use `docker compose --env-file .env.mq-local -p crm-rabbitmq-local` for its
+build, up, exec and logs commands. See the repository README for exact test
+commands. Port 5672 remains internal; a production HTTPS/IP-allowlisted
+management route is configured separately. Completed tasks expire after
+`MQ_TASK_RETENTION_DAYS`, while Failed tasks remain for manual investigation.
+
 ### Personal metrics and calendar periods (31.10.2026)
 
 Ordinary operators see their own shifts, including Closed shifts, in the table. They cannot open Closed records by ID, read their stream, or edit them. Other operators’ shifts are excluded, including shifts in the same group. Native administrators and explicitly authorized closed-shift correction roles keep access. This is enforced by an entity ACL checker and a mandatory list filter, including filtered/related lists.
@@ -194,3 +251,13 @@ docker compose exec -T crm php /tmp/CleanupDynamicRoles.php
 ```
 
 HTTP-тест создаёт 400 ролей, проверяет параллельное сохранение, поиск/страницы, делегированное управление ролями, приглашения, все пять типов аккаунтов, реальный цикл смены, выдачу и отзыв прав. Фикстуры остаются до явной мягкой очистки указанной командой.
+
+## RabbitMQ: локальная доработка
+
+Аналитика и подтверждение смены выполняются отдельными воркерами через transactional outbox в MariaDB. Создание пользователей и проверка ACL остаются синхронными. Счётчик попыток фиксируется до обработки, завершение и финансовые записи — вместе. После лимита попыток задача получает Failed и уходит в DLQ; исправленный повтор создаёт новую задачу с retryOfId. Очередь не редактирует исходное сообщение.
+
+От зависания защищают heartbeat и MQ_TASK_TIMEOUT_SECONDS. Пока закрытие смены в очереди, новая правка проверки получает 409. WebSocket уведомляет инициатора о завершении; интерфейс запрашивает результат с повторной проверкой ACL, а при потере связи продолжает опрос HTTP.
+
+PNG оптимизируются без потерь для превью через screenshotOptimizations. Оригиналы остаются; JPEG/WebP/GIF проходят проверку без перекодирования. Экономится трафик превью, а не общий объём хранения.
+
+Необязательный compose.mq-management.yaml предоставляет HTTPS-панель с IP/CIDR из MQ_MANAGEMENT_ALLOWED_IPS. Настройки сертификата и инструкции находятся в корневом README. На production нужны действительный сертификат и проверенный внешний IP; локальный сертификат не переносить.

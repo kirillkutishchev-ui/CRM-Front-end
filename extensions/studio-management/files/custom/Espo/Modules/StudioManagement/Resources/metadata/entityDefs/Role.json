@@ -104,6 +104,15 @@
       "view": "views/role/fields/permission",
       "audited": true
     },
+    "smAccountOnboardingPermission": {
+      "type": "enum",
+      "options": ["not-set", "yes", "no"],
+      "default": "not-set",
+      "tooltip": true,
+      "translation": "Role.options.onboardingLevel",
+      "view": "views/role/fields/permission",
+      "audited": true
+    },
     "smInvitationsPermission": {
       "type": "enum",
       "options": [

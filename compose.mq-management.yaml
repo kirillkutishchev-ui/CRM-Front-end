@@ -1,0 +1,17 @@
+# Optional HTTPS endpoint. Use with -f compose.yaml -f compose.mq-management.yaml.
+services:
+  mq-management-https:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/mq-management/start.sh"]
+    environment:
+      MQ_MANAGEMENT_ALLOWED_IPS: ${MQ_MANAGEMENT_ALLOWED_IPS:-127.0.0.1/32}
+    volumes:
+      - ./docker/mq-management/start.sh:/opt/mq-management/start.sh:ro
+      - ${MQ_TLS_CERT_FILE:-./data/tmp/mq-management/cert.pem}:/etc/mq-tls/cert.pem:ro
+      - ${MQ_TLS_KEY_FILE:-./data/tmp/mq-management/key.pem}:/etc/mq-tls/key.pem:ro
+    ports:
+      - "${MQ_HTTPS_BIND_ADDRESS:-127.0.0.1}:${MQ_HTTPS_PORT:-15674}:443"
+    depends_on:
+      crm_rabbitmq:
+        condition: service_healthy

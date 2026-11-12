@@ -107,5 +107,14 @@ const make = () => {
     screenshot.afterRender();
     eq(link.dataset.action, 'showImagePreview');
     eq(link.dataset.id, 'image');
+    const image = {src: 'http://localhost:8094/?entryPoint=image&id=image', dataset: {},
+        getAttribute() { return this.src; }, closest: () => link};
+    screenshot.model = {get: name => ({screenshotsIds: ['image'], screenshotOptimizations: {image: 'optimized'},
+        screenshotsNames: {image: 'proof.png'}, screenshotsTypes: {image: 'image/png'}})[name]};
+    screenshot.element = {querySelectorAll: selector => selector === 'a[href]' ? [link] : [image]};
+    screenshot.decoratePreviews();
+    eq(new URL(image.src).searchParams.get('id'), 'optimized');
+    eq(image.dataset.originalAttachmentId, 'image');
+    eq(link.dataset.id, 'image');
     console.log('Shift review client: ' + checks + ' checks passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

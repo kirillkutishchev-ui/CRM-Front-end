@@ -1,14 +1,47 @@
 name: studio-crm
 
 x-crm-image: &crm-image
-  image: studio-crm:${ESPOCRM_VERSION:-10.0.10}
+  image: ${CRM_IMAGE:-studio-crm:${ESPOCRM_VERSION:-10.0.10}}
 
 x-crm-volumes: &crm-volumes
   - crm-data:/var/www/html/data
   - crm-custom:/var/www/html/custom
   - crm-client-custom:/var/www/html/client/custom
 
+x-mq-environment: &mq-environment
+  MQ_ENABLED: ${MQ_ENABLED:-true}
+  MQ_HOST: ${MQ_HOST:-crm_rabbitmq}
+  MQ_PORT: ${MQ_PORT:-5672}
+  MQ_USER: ${MQ_USER:?Set MQ_USER in .env}
+  MQ_PASSWORD: ${MQ_PASSWORD:?Set MQ_PASSWORD in .env}
+  MQ_VHOST: ${MQ_VHOST:-/}
+  MQ_EXCHANGE: ${MQ_EXCHANGE:-crm.events}
+  MQ_DLX: ${MQ_DLX:-crm.dlx}
+  MQ_PREFETCH: ${MQ_PREFETCH:-1}
+  MQ_MAX_ATTEMPTS: ${MQ_MAX_ATTEMPTS:-3}
+  MQ_RETRY_DELAY_MS: ${MQ_RETRY_DELAY_MS:-5000}
+  MQ_TASK_RETENTION_DAYS: ${MQ_TASK_RETENTION_DAYS:-7}
+  MQ_TASK_TIMEOUT_SECONDS: ${MQ_TASK_TIMEOUT_SECONDS:-120}
+
 services:
+  crm_rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${MQ_USER:?Set MQ_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${MQ_PASSWORD:?Set MQ_PASSWORD in .env}
+      RABBITMQ_DEFAULT_VHOST: ${MQ_VHOST:-/}
+    volumes:
+      - crm-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${MQ_MANAGEMENT_BIND_ADDRESS:-127.0.0.1}:${MQ_MANAGEMENT_PORT:-15672}:15672"
+
   db:
     image: mariadb:11.4
     restart: unless-stopped
@@ -35,6 +68,7 @@ services:
         ESPOCRM_VERSION: ${ESPOCRM_VERSION:-10.0.10}
     restart: unless-stopped
     environment:
+      <<: *mq-environment
       ESPOCRM_DATABASE_PLATFORM: Mysql
       ESPOCRM_DATABASE_HOST: db
       ESPOCRM_DATABASE_NAME: ${MARIADB_DATABASE:-espocrm}
@@ -93,6 +127,8 @@ services:
     <<: *crm-image
     restart: unless-stopped
     entrypoint: docker-daemon.sh
+    environment:
+      <<: *mq-environment
     volumes: *crm-volumes
     depends_on:
       crm:
@@ -109,6 +145,7 @@ services:
     restart: unless-stopped
     entrypoint: docker-websocket.sh
     environment:
+      <<: *mq-environment
       ESPOCRM_CONFIG_USE_WEB_SOCKET: "true"
       ESPOCRM_CONFIG_WEB_SOCKET_URL: ${CRM_WEBSOCKET_URL:-ws://localhost:8081}
       ESPOCRM_CONFIG_WEB_SOCKET_ZERO_M_Q_SUBSCRIBER_DSN: tcp://*:7777
@@ -126,8 +163,83 @@ services:
     ports:
       - "${CRM_BIND_ADDRESS:-127.0.0.1}:${CRM_WEBSOCKET_PORT:-8081}:8080"
 
+  mq-publisher:
+    <<: *crm-image
+    entrypoint: ["docker-entrypoint.sh"]
+    restart: unless-stopped
+    command: ["bin/command", "studio-mq-publisher"]
+    environment:
+      <<: *mq-environment
+    volumes: *crm-volumes
+    depends_on:
+      crm:
+        condition: service_healthy
+      crm_rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(is_file('/tmp/studio-mq-heartbeat') && time()-filemtime('/tmp/studio-mq-heartbeat') < 150 ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  mq-worker-analytics:
+    <<: *crm-image
+    entrypoint: ["docker-entrypoint.sh"]
+    restart: unless-stopped
+    command: ["bin/command", "studio-mq-worker", "--queue=analytics_tasks"]
+    environment:
+      <<: *mq-environment
+    volumes: *crm-volumes
+    depends_on:
+      crm:
+        condition: service_healthy
+      crm_rabbitmq:
+        condition: service_healthy
+    healthcheck: &mq-worker-healthcheck
+      test: ["CMD", "php", "-r", "exit(is_file('/tmp/studio-mq-heartbeat') && time()-filemtime('/tmp/studio-mq-heartbeat') < (int)(getenv('MQ_TASK_TIMEOUT_SECONDS') ?: 120)+30 ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  mq-worker-files:
+    <<: *crm-image
+    entrypoint: ["docker-entrypoint.sh"]
+    restart: unless-stopped
+    command: ["bin/command", "studio-mq-worker", "--queue=file_processing"]
+    environment:
+      <<: *mq-environment
+    volumes: *crm-volumes
+    depends_on:
+      crm:
+        condition: service_healthy
+      crm_rabbitmq:
+        condition: service_healthy
+    healthcheck: *mq-worker-healthcheck
+
+  mq-worker-websocket:
+    <<: *crm-image
+    entrypoint: ["docker-entrypoint.sh"]
+    restart: unless-stopped
+    command: ["bin/command", "studio-mq-worker", "--queue=websocket_notifications"]
+    environment:
+      <<: *mq-environment
+      ESPOCRM_CONFIG_USE_WEB_SOCKET: "true"
+      ESPOCRM_CONFIG_WEB_SOCKET_ZERO_M_Q_SUBMISSION_DSN: tcp://websocket:7777
+    volumes: *crm-volumes
+    depends_on:
+      crm:
+        condition: service_healthy
+      crm_rabbitmq:
+        condition: service_healthy
+      websocket:
+        condition: service_healthy
+    healthcheck: *mq-worker-healthcheck
+
 volumes:
   crm-db:
   crm-data:
   crm-custom:
   crm-client-custom:
+  crm-rabbitmq:

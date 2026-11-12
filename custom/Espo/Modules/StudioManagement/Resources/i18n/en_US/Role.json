@@ -7,7 +7,8 @@
     "smShiftRevisePermission": "Revise closed shifts",
     "smStaffAccessPermission": "View staff",
     "smAnalyticsAccessPermission": "View analytics",
-    "smInvitationsPermission": "Manage registration links"
+    "smInvitationsPermission": "Manage registration links",
+    "smAccountOnboardingPermission": "Approve registrations"
   },
   "tooltips": {
     "smShiftReviewPermission": "Review and approve shift closure. Own production uses the producer recorded on the shift. Legacy access is limited to the assigned producer and administrator.",
@@ -17,7 +18,8 @@
     "smShiftRevisePermission": "Director-level correction of approved shifts. Requires explicit permission and native shift edit ACL. Legacy/unset does not automatically grant this to producers.",
     "smStaffAccessPermission": "Requires staff tab and User read ACL. Own production means teams produced by this user.",
     "smAnalyticsAccessPermission": "Requires Analytics tab ACL. Own shifts includes model/operator/producer participation.",
-    "smInvitationsPermission": "Sensitive: together with link CRUD ACL, allows inviting with any role, including elevated roles."
+    "smInvitationsPermission": "Sensitive: together with link CRUD ACL, allows inviting with any role, including elevated roles.",
+    "smAccountOnboardingPermission": "Allows editing pending profiles, managing their photos and activating accounts in Accounts to complete. Independent of link management and User CRUD. Recruiters remain limited to assigned and unassigned requests. Legacy preserves recruiter access and unrestricted staff/link/User roles. With multiple roles, an allow in one role overrides a deny in another."
   },
   "labels": {
     "Remove All Restrictions": "Remove All Restrictions",
@@ -28,6 +30,11 @@
     "allRestrictionsRemoved": "All restrictions are removed. Save the role to apply the permissions."
   },
   "options": {
+    "onboardingLevel": {
+      "not-set": "Legacy behavior",
+      "yes": "Allowed",
+      "no": "Denied"
+    },
     "studioLevel": {
       "not-set": "Legacy account-type rules",
       "all": "All records",

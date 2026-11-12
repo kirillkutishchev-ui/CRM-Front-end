@@ -14,6 +14,7 @@ use Espo\Entities\User;
 use Espo\Modules\StudioManagement\Entities\SmShift;
 use Espo\Modules\StudioManagement\Tools\RolePolicy;
 use Espo\Modules\StudioManagement\Tools\ShiftService;
+use Espo\Modules\StudioManagement\Tools\Mq\MqConfig;
 use Espo\ORM\EntityManager;
 
 final class PostReviewShift implements Action
@@ -24,6 +25,7 @@ final class PostReviewShift implements Action
         private ShiftService $service,
         private User $user,
         private EntityManager $entityManager,
+        private MqConfig $mqConfig = new MqConfig(),
     ) {}
 
     public function process(Request $request): Response
@@ -48,6 +50,12 @@ final class PostReviewShift implements Action
             throw new BadRequest('Invalid review data or confirmation flag.');
         }
         // Approval is a separate request from operator submission, even for dual-role users.
+        if ($confirm && $this->mqConfig->isEnabled()) {
+            $task = $this->service->queueApproval($id, $siteData, $screenshots, $comment, $this->user);
+            return ResponseComposer::json([
+                'async' => true, 'taskId' => $task->getId(), 'status' => $task->get('status'),
+            ])->setStatus(202);
+        }
         $result = $confirm
             ? $this->service->approve($id, $siteData, $screenshots, $comment, $this->user)
             : $this->service->review($id, $siteData, $screenshots, $comment);

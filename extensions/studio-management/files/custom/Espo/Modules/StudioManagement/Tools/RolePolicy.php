@@ -77,4 +77,32 @@ final class RolePolicy
     {
         return in_array($this->level($user, 'smInvitations'), ['yes', 'all'], true);
     }
+
+    public function canAccessOnboarding(User $user): bool
+    {
+        if ($user->isAdmin()) {
+            return true;
+        }
+        if (!$user->isRegular()) {
+            return false;
+        }
+        $permission = $this->level($user, 'smAccountOnboarding', 'not-set');
+        if ($permission !== 'not-set') {
+            return in_array($permission, ['yes', 'all'], true);
+        }
+        return AccountOnboarding::isRecruiter($user) || $this->legacyCanApproveAccounts($user);
+    }
+
+    public function canApproveAccounts(User $user): bool
+    {
+        return $this->canAccessOnboarding($user) && !AccountOnboarding::isRecruiter($user);
+    }
+
+    private function legacyCanApproveAccounts(User $user): bool
+    {
+        return
+            $this->staffLevel($user) === 'all' && $this->canInvite($user) &&
+            $this->aclManager->getLevel($user, 'User', 'read') === 'all' &&
+            $this->aclManager->getLevel($user, 'User', 'edit') === 'all';
+    }
 }

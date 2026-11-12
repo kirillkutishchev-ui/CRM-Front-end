@@ -80,6 +80,11 @@
     "actionClassName": "Espo\\Modules\\StudioManagement\\Api\\GetAnalytics"
   },
   {
+    "route": "/StudioManagement/mq-tasks/:id",
+    "method": "get",
+    "actionClassName": "Espo\\Modules\\StudioManagement\\Api\\GetMqTask"
+  },
+  {
     "route": "/StudioManagement/staff/:type",
     "method": "get",
     "actionClassName": "Espo\\Modules\\StudioManagement\\Api\\GetStaffList"

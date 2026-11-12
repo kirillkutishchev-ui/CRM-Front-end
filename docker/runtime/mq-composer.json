@@ -1,0 +1,14 @@
+{
+  "name": "studio-management/rabbitmq-runtime",
+  "description": "Pinned RabbitMQ client dependencies for the Studio CRM runtime image.",
+  "type": "project",
+  "require": {
+    "php": "^8.3",
+    "php-amqplib/php-amqplib": "3.7.4"
+  },
+  "config": {
+    "allow-plugins": false,
+    "optimize-autoloader": true,
+    "sort-packages": true
+  }
+}

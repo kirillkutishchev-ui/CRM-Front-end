@@ -1,4 +1,4 @@
-define(['view', 'studio-management:analytics-periods'], function (View, Periods) {
+define(['view', 'studio-management:analytics-periods', 'studio-management:mq-task-wakeup'], function (View, Periods, TaskWakeup) {
     return class extends View {
         template = 'studio-management:sm-analytics/index'
 
@@ -54,7 +54,10 @@ define(['view', 'studio-management:analytics-periods'], function (View, Periods)
             const $status = this.$el.find('.analytics-status').text(this.translate('Loading...'));
 
             try {
-                const data = await Espo.Ajax.getRequest('StudioManagement/analytics', {from, to});
+                let data = await Espo.Ajax.getRequest('StudioManagement/analytics', {from, to});
+                if (data.async === true && data.taskId) {
+                    data = await this.waitForTask(data.taskId, requestNumber);
+                }
                 if (requestNumber !== this.requestNumber || this.isRemoved()) return;
                 this.personalOnly = data.personalOnly === true;
                 this.renderPersonalTotals(data.personalTotals || []);
@@ -68,6 +71,28 @@ define(['view', 'studio-management:analytics-periods'], function (View, Periods)
                     e?.xhr?.getResponseHeader('X-Status-Reason') ||
                     this.translate('analyticsFailed', 'messages', 'SmAnalytics')
                 );
+            }
+        }
+
+        async waitForTask(taskId, requestNumber) {
+            const wakeup = TaskWakeup(this, taskId);
+            try {
+            for (let attempt = 0; attempt < 120; attempt++) {
+                if (requestNumber !== this.requestNumber || this.isRemoved()) return {};
+
+                const task = await Espo.Ajax.getRequest(
+                    `StudioManagement/mq-tasks/${encodeURIComponent(taskId)}`
+                );
+
+                if (task.status === 'Completed') return task.result || {};
+                if (task.status === 'Failed') throw new Error(task.error || 'Analytics task failed.');
+
+                await wakeup.wait();
+            }
+
+            throw new Error('Analytics task timed out.');
+            } finally {
+                wakeup.dispose();
             }
         }
 

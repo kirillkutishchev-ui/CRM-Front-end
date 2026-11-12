@@ -1,0 +1,9 @@
+{
+  "module": "StudioManagement",
+  "entity": true,
+  "object": false,
+  "acl": false,
+  "tab": false,
+  "importable": false,
+  "stream": false
+}

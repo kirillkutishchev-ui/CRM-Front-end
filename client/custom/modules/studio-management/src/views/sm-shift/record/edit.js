@@ -1,4 +1,4 @@
-define(['views/record/edit', 'studio-management:role-policy'], function (EditRecordView, RolePolicy) {
+define(['views/record/edit', 'studio-management:role-policy', 'studio-management:mq-task-wakeup'], function (EditRecordView, RolePolicy, TaskWakeup) {
     return class extends EditRecordView {
         saveAndContinueEditingAction = false
         saveAndNewAction = false
@@ -177,12 +177,15 @@ define(['views/record/edit', 'studio-management:role-policy'], function (EditRec
                     if (confirmClosure) {
                         await this.confirm(this.translate('approveShiftConfirmation', 'messages', 'SmShift'));
                     }
-                    const response = await Espo.Ajax.postRequest(`SmShift/${this.model.id}/review`, {
+                    let response = await Espo.Ajax.postRequest(`SmShift/${this.model.id}/review`, {
                         siteData: this.model.get('siteData') || [],
                         screenshotsIds: this.model.get('screenshotsIds') || [],
                         comment: this.model.get('description') || '',
                         confirmClosure,
                     });
+                    if (response.async === true && response.taskId) {
+                        response = await this.waitForMqTask(response.taskId);
+                    }
                     this.model.set(response);
                     Espo.Ui.success(this.translate(confirmClosure ? 'shiftApproved' : 'shiftReviewSaved', 'messages', 'SmShift'));
                     this.leaveToDetail();
@@ -213,6 +216,24 @@ define(['views/record/edit', 'studio-management:role-policy'], function (EditRec
 
         isManager() {
             return RolePolicy.canRevise(this);
+        }
+
+        async waitForMqTask(taskId) {
+            const wakeup = TaskWakeup(this, taskId);
+            try {
+            for (let attempt = 0; attempt < 240; attempt++) {
+                if (this.isRemoved?.()) throw new Error('Shift view was closed.');
+                const task = await Espo.Ajax.getRequest(
+                    `StudioManagement/mq-tasks/${encodeURIComponent(taskId)}`
+                );
+                if (task.status === 'Completed') return task.result.shift || task.result;
+                if (task.status === 'Failed') throw new Error(task.error || 'Shift processing failed.');
+                await wakeup.wait();
+            }
+            throw new Error('Shift processing is still running. Refresh the shift to see its status.');
+            } finally {
+                wakeup.dispose();
+            }
         }
 
         leaveToDetail() {

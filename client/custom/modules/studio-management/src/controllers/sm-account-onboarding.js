@@ -1,7 +1,7 @@
-define(['controller'], function (Controller) {
+define(['controller', 'studio-management:role-policy'], function (Controller, RolePolicy) {
     return class extends Controller {
         checkAccess() {
-            return this.getUser().isAdmin() || this.getUser().get('smAccountType') === 'Recruiter';
+            return RolePolicy.canAccessOnboarding(this);
         }
 
         actionIndex() {

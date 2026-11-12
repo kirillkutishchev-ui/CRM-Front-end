@@ -1,0 +1,42 @@
+{
+  "fields": {
+    "name": {"type": "varchar", "maxLength": 190, "required": true, "readOnly": true},
+    "eventId": {"type": "varchar", "maxLength": 36, "required": true, "readOnly": true},
+    "aggregateId": {"type": "varchar", "maxLength": 36, "readOnly": true},
+    "routingKey": {"type": "varchar", "maxLength": 100, "required": true, "readOnly": true},
+    "queueName": {"type": "varchar", "maxLength": 100, "required": true, "readOnly": true},
+    "status": {
+      "type": "enum",
+      "options": ["Queued", "Published", "Processing", "Completed", "Failed"],
+      "default": "Queued",
+      "required": true,
+      "readOnly": true,
+      "index": true
+    },
+    "payload": {"type": "jsonObject", "required": true, "readOnly": true},
+    "securityContext": {"type": "jsonObject", "required": true, "readOnly": true},
+    "result": {"type": "jsonObject", "readOnly": true},
+    "errorMessage": {"type": "text", "readOnly": true},
+    "attempt": {"type": "int", "default": 0, "required": true, "readOnly": true},
+    "maxAttempts": {"type": "int", "default": 3, "required": true, "readOnly": true},
+    "retryOfId": {"type": "varchar", "maxLength": 36, "readOnly": true},
+    "initiatedBy": {"type": "link", "readOnly": true},
+    "publishedAt": {"type": "datetime", "readOnly": true},
+    "availableAt": {"type": "datetime", "readOnly": true},
+    "startedAt": {"type": "datetime", "readOnly": true},
+    "completedAt": {"type": "datetime", "readOnly": true},
+    "createdAt": {"type": "datetime", "readOnly": true},
+    "modifiedAt": {"type": "datetime", "readOnly": true}
+  },
+  "links": {
+    "initiatedBy": {"type": "belongsTo", "entity": "User"}
+  },
+  "indexes": {
+    "eventId": {"columns": ["eventId"], "unique": true},
+    "statusCreated": {"columns": ["status", "createdAt", "deleted"]},
+    "queueStatus": {"columns": ["queueName", "status", "deleted"]},
+    "aggregateStatus": {"columns": ["aggregateId", "status", "deleted"]},
+    "initiatedByCreated": {"columns": ["initiatedById", "createdAt", "deleted"]}
+  },
+  "collection": {"orderBy": "createdAt", "order": "desc", "textFilterFields": ["name", "eventId"]}
+}

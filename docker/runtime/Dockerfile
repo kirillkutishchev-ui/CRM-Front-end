@@ -1,7 +1,25 @@
-ARG ESPOCRM_VERSION=10.0.9
+ARG ESPOCRM_VERSION=10.0.10
+
+FROM composer:2.8 AS mq-dependencies
+
+WORKDIR /app
+COPY docker/runtime/mq-composer.json composer.json
+COPY docker/runtime/mq-composer.lock composer.lock
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --no-progress \
+    --prefer-dist \
+    --ignore-platform-req=ext-sockets \
+    --optimize-autoloader
+
 FROM espocrm/espocrm:${ESPOCRM_VERSION}-apache
 
 USER root
+
+COPY --from=mq-dependencies --chown=root:root /app/vendor/ /opt/studio-mq-vendor/
+RUN docker-php-ext-install sockets pcntl \
+    && php -r "require '/opt/studio-mq-vendor/autoload.php'; if (!extension_loaded('sockets') || !class_exists(\\PhpAmqpLib\\Connection\\AMQPStreamConnection::class)) { exit(1); }"
 
 COPY --chown=root:root custom/Espo/Modules/StudioManagement/ /opt/studio-management/server/
 COPY --chown=root:root client/custom/modules/studio-management/ /opt/studio-management/client/

@@ -26,6 +26,9 @@ class BeforeSave implements BeforeSaveHook
 
     public function beforeSave(Entity $entity, SaveOptions $options): void
     {
+        if ($entity->isAttributeChanged('screenshotOptimizations')) {
+            throw WorkflowError::forbidden('Оптимизированные материалы изменяются только обработчиком очереди.');
+        }
         if ($entity->isNew()) {
             $entity->set('status', SmShift::STATUS_DRAFT);
             $this->prepareDraft($entity);

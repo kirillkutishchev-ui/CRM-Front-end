@@ -30,7 +30,7 @@ final class AccountOnboarding
     private const TEXT_FIELDS = ['smProfileBio' => 10000, 'smContact' => 255];
     private const DATE_FIELDS = ['smBirthDate', 'smStartDate'];
 
-    public function __construct(private EntityManager $em) {}
+    public function __construct(private EntityManager $em, private RolePolicy $policy) {}
 
     /** Registration callers invoke this before the new regular user's first save. */
     public static function prepare(User $user): void
@@ -48,11 +48,12 @@ final class AccountOnboarding
 
     private function scope(User $actor): array
     {
-        if (!$actor->isActive() || (!$actor->isAdmin() && !self::isRecruiter($actor))) {
+        $canApproveAll = $this->policy->canApproveAccounts($actor);
+        if (!$actor->isActive() || !$this->policy->canAccessOnboarding($actor)) {
             throw new Forbidden();
         }
         $scope = ['type' => User::TYPE_REGULAR, self::PENDING => true, 'isActive' => false];
-        if (!$actor->isAdmin()) {
+        if (!$canApproveAll) {
             $scope['OR'] = [['smRecruiterId' => $actor->getId()], ['smRecruiterId' => null]];
         }
         return $scope;

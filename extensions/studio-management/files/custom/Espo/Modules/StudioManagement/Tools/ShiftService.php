@@ -6,6 +6,9 @@ use Espo\Entities\User;
 use Espo\Modules\StudioManagement\Entities\SmShift;
 use Espo\Modules\StudioManagement\Entities\SmShiftExpense;
 use Espo\Modules\StudioManagement\Entities\SmShiftFinancialSnapshot;
+use Espo\Modules\StudioManagement\Entities\SmMqTask;
+use Espo\Modules\StudioManagement\Tools\Mq\MqConfig;
+use Espo\Modules\StudioManagement\Tools\Mq\MqTaskService;
 use Espo\ORM\Entity;
 use Espo\ORM\EntityManager;
 use InvalidArgumentException;
@@ -21,6 +24,8 @@ final class ShiftService
         private MoneyCalculator $money,
         private TeamComposition $composition,
         private AccountTypeResolver $types,
+        private MqConfig $mqConfig,
+        private MqTaskService $mqTasks,
     ) {}
 
     public function open(string $id): Entity
@@ -96,6 +101,18 @@ final class ShiftService
                 'producerId' => $this->getProducer($shift)->getId(),
             ]);
             $this->entityManager->saveEntity($shift, ['skipBeforeSave' => true]);
+
+            if ($this->mqConfig->isEnabled()) {
+                $this->mqTasks->enqueue(
+                    MqConfig::ROUTING_FILES,
+                    [
+                        'shiftId' => $shift->getId(),
+                        'attachmentIds' => $this->normalizeAttachmentIds($screenshotIds),
+                    ],
+                    $submittedBy,
+                );
+            }
+
             return $shift;
         });
     }
@@ -106,6 +123,11 @@ final class ShiftService
             $shift = $this->getShiftForUpdate($id);
             if ($shift->get('status') !== SmShift::STATUS_REVIEW) {
                 throw WorkflowError::conflict('Проверять можно только смену со статусом «На проверке».');
+            }
+            foreach ($this->pendingApprovals($id) as $task) {
+                if ((((array) $task->get('payload'))['operation'] ?? null) === 'approve') {
+                    throw WorkflowError::conflict('Смена уже поставлена на закрытие. Дождитесь результата обработки.');
+                }
             }
             $this->saveReviewData($shift, $siteData, $screenshotIds, $comment);
             $this->entityManager->saveEntity($shift, ['skipBeforeSave' => true]);
@@ -188,6 +210,44 @@ final class ShiftService
                 return $shift;
             }
         );
+    }
+
+    public function queueApproval(string $id, array $siteData, array $screenshotIds, string $comment, User $actor): Entity
+    {
+        return $this->entityManager->getTransactionManager()->run(function () use ($id, $siteData, $screenshotIds, $comment, $actor): Entity {
+            $shift = $this->getShiftForUpdate($id);
+            if ($shift->get('status') !== SmShift::STATUS_REVIEW) {
+                throw WorkflowError::conflict('Подтвердить можно только смену на проверке.');
+            }
+            [$rows] = $this->normalizeSiteData($siteData);
+            $payload = [
+                'operation' => 'approve', 'shiftId' => $id, 'siteData' => $rows,
+                'attachmentIds' => $this->normalizeAttachmentIds($screenshotIds),
+                'comment' => $this->normalizeComment($comment),
+            ];
+            $pending = $this->pendingApprovals($id);
+            foreach ($pending as $task) {
+                if ((((array) $task->get('payload'))['operation'] ?? null) === 'approve') {
+                    if ($task->get('initiatedById') !== $actor->getId() ||
+                        json_encode($task->get('payload')) !== json_encode((object) $payload)) {
+                        throw WorkflowError::conflict('Подтверждение этой смены уже выполняется.');
+                    }
+                    return $task;
+                }
+            }
+            return $this->mqTasks->enqueue(MqConfig::ROUTING_FILES, $payload, $actor);
+        });
+    }
+
+    private function pendingApprovals(string $id): iterable
+    {
+        if (!$this->mqConfig->isEnabled()) {
+            return [];
+        }
+        return $this->entityManager->getRDBRepository(SmMqTask::ENTITY_TYPE)
+            ->where(['aggregateId' => $id, 'routingKey' => MqConfig::ROUTING_FILES,
+                'status' => [SmMqTask::STATUS_QUEUED, SmMqTask::STATUS_PUBLISHED, SmMqTask::STATUS_PROCESSING]])
+            ->find();
     }
 
     /**

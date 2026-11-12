@@ -6,5 +6,21 @@
   "studioMigrateRegistrationLinks": {
     "className": "Espo\\Modules\\StudioManagement\\Classes\\ConsoleCommands\\MigrateRegistrationLinks",
     "listed": false
+  },
+  "studioMqPublisher": {
+    "className": "Espo\\Modules\\StudioManagement\\Classes\\ConsoleCommands\\MqPublisher",
+    "listed": false,
+    "allowedFlags": ["once"]
+  },
+  "studioMqWorker": {
+    "className": "Espo\\Modules\\StudioManagement\\Classes\\ConsoleCommands\\MqWorker",
+    "listed": false,
+    "allowedOptions": ["queue"],
+    "allowedFlags": ["once"]
+  },
+  "studioMqRetry": {
+    "className": "Espo\\Modules\\StudioManagement\\Classes\\ConsoleCommands\\MqRetry",
+    "listed": false,
+    "allowedOptions": ["taskId", "payloadFile", "asUserId"]
   }
 }

@@ -2,6 +2,12 @@
 
 namespace Espo\Modules\StudioManagement;
 
+$mqAutoload = '/opt/studio-mq-vendor/autoload.php';
+
+if (is_file($mqAutoload)) {
+    require_once $mqAutoload;
+}
+
 use Espo\Core\Binding\Binder;
 use Espo\Core\Binding\BindingProcessor;
 use Espo\Core\Utils\Config\ConfigWriterFileManager;

@@ -50,7 +50,8 @@ vm.runInNewContext(fs.readFileSync(path.join(root,
 });
 vm.runInNewContext(fs.readFileSync(path.join(root,
     'client/custom/modules/studio-management/src/views/site/navbar.js'), 'utf8'), {
-    define: (deps, factory) => { Navbar = factory(class {getTabList() {return ['SmShift', 'SmAnalytics'];}}); },
+    define: (deps, factory) => { Navbar = factory(class {getTabList() {return ['SmShift', 'SmAnalytics'];}},
+        {canApproveAccounts: () => false, canAccessOnboarding: () => true}); },
 });
 for (const [type, allowed] of [['Operator',true],['Model',true],['Recruiter',false]]) {
     const actor = {getUser:()=>({get:()=>type,isAdmin:()=>false}),getAcl:()=>({check:()=>false,getLevel:()=> 'own'}),translate:()=> 'Personal Analytics'};

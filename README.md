@@ -82,7 +82,7 @@ daemon and the WebSocket service. The Studio Management backend and frontend
 are baked into the local image and refreshed in the persistent custom volumes
 each time the web container starts.
 
-1. Copy `.env.example` to `.env`, replace all three example passwords, and set
+1. Copy `.env.example` to `.env`, replace every example password, and set
    `CRM_ADMIN_HOSTS` plus `CRM_ADMIN_ALLOWED_IPS`.
 2. Start the stack:
 
@@ -128,6 +128,129 @@ Useful commands:
 docker compose ps
 docker compose logs -f crm
 docker compose down
+```
+
+#### RabbitMQ task processing
+
+The runtime stack includes RabbitMQ and separate publisher/worker containers.
+The CRM writes a task and the business change to MariaDB first; the publisher
+then sends the durable event to the `crm.events` topic exchange. This
+transactional-outbox design prevents a temporary broker outage from losing a
+shift-material or analytics task.
+
+The durable queues are `analytics_tasks`, `file_processing`, and
+`websocket_notifications`. Each has a dead-letter queue bound to `crm.dlx`.
+Messages use persistent delivery, publisher confirms, and explicit ACKs.
+Delivery attempts commit separately before handler execution, so SIGKILL/OOM
+cannot reset the retry limit. Concurrent duplicate claims are fenced by the
+attempt number; financial writes and task completion still commit atomically.
+Workers have a hard `MQ_TASK_TIMEOUT_SECONDS` deadline (default 120 seconds)
+and a heartbeat healthcheck. Increase the deadline for legitimately longer jobs.
+Docker restarts a timed-out process; there is no Supervisor.
+Publication holds the outbox row lock until confirmation; workers hold that
+lock while running the handler and atomically committing the result plus a
+completion-notification outbox entry. Completed duplicates do not rerun the
+handler. A failed attempt returns to `Queued` with a future `availableAt` in
+MariaDB; the publisher sends it again after `MQ_RETRY_DELAY_MS`.
+
+Studio analytics and final shift approval run in workers. The web API returns
+HTTP 202 with a task ID, and the UI waits for the task result. Financial
+snapshots, expense rows, payout flags and the Closed status still commit in
+one transaction. User creation, role assignment and authentication remain
+synchronous. Workers recheck the initiating user's current native and Studio
+permissions rather than trusting role flags in the broker message.
+
+Screenshot processing checks the image bytes, dimensions, MIME type, file size
+and access to the shift/attachment. PNG files can receive lossless compressed
+copies when smaller; originals remain intact. JPEG, WebP and GIF files are
+validated without re-encoding. This stage does not reduce the initial upload
+traffic or replace the source screenshot collection.
+The shift stores a read-only `screenshotOptimizations` mapping, and preview
+thumbnails use the smaller PNG. Full-size originals stay available. Keeping
+originals plus optimized copies increases total storage; this optimization
+reduces preview transfer, not initial upload or total disk usage. A killed
+transaction can leave a deterministic derived file that is reused on retry.
+
+AMQP port 5672 is available only inside the Compose network. The management UI
+is bound to `127.0.0.1:15672` by default; do not bind it publicly. For remote
+administration, put an authenticated HTTPS reverse proxy with an IP allow-list
+in front of that loopback address, or use the optional HTTPS container:
+
+```bash
+# Set certificate/key paths, MQ_MANAGEMENT_ALLOWED_IPS (comma-separated CIDRs),
+# MQ_HTTPS_BIND_ADDRESS and MQ_HTTPS_PORT in the private .env first.
+docker compose -f compose.yaml -f compose.mq-management.yaml up -d mq-management-https
+```
+
+`compose.mq-management.yaml` enforces TLS 1.2/1.3 and a deny-by-default client
+IP allowlist before forwarding to RabbitMQ's own authenticated UI. It uses the
+actual TCP client address and ignores forwarded-IP headers. Publish it directly
+on a dedicated port if external access is needed; a NAT/load balancer in front
+would hide the client IP and needs a separate reviewed proxy configuration.
+Use a certificate valid for the chosen management hostname in production.
+The example admin IP is `158.160.144.108/32`; verify your current egress IP.
+Keep the raw management port bound to loopback. Local test certificates under
+`data/tmp` are ignored and must never be deployed.
+
+The `studioMqTaskCompleted` WebSocket topic carries only task ID/status, targets
+the initiating active user and wakes the view's authorized HTTP result lookup.
+Transport errors are retried rather than silently marked Completed. Offline
+browsers recover by polling; a successful transport submission does not imply
+that every browser was connected or acknowledged receipt. A shift awaiting
+queued approval rejects later review saves with HTTP 409 until processing ends.
+
+Operational checks:
+
+```bash
+docker compose ps
+docker compose exec -T crm_rabbitmq rabbitmq-diagnostics -q ping
+docker compose exec -T crm_rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged
+docker compose logs --tail=100 mq-publisher mq-worker-analytics mq-worker-files mq-worker-websocket
+```
+
+Automatic retries preserve the original payload. After
+the configured attempts, the message moves to the queue's `.dlq` and the
+MariaDB task becomes `Failed`. To correct its payload, copy a JSON object into
+the CRM container and create a new task linked to the failed one:
+
+```bash
+docker compose cp corrected-payload.json crm:/tmp/corrected-payload.json
+docker compose exec -T crm bin/command studio-mq-retry \
+  --task-id=FAILED_TASK_ID \
+  --payload-file=/tmp/corrected-payload.json
+```
+
+Use `--as-user-id=USER_ID` only when the original initiator no longer exists.
+Completed task records are retained for `MQ_TASK_RETENTION_DAYS` and then
+purged by the publisher. Failed tasks are retained for manual diagnosis.
+
+For the isolated local RabbitMQ installation, use the private `.env.mq-local`
+file together with the explicit Compose project name below on every command.
+It selects image `studio-crm:mq-local`, CRM HTTP/WebSocket ports 8098/8099 and
+the management UI on loopback port 15673. Its separate named volumes preserve
+other local CRM installations. `.env.mq-local` contains local credentials and
+is ignored by Git.
+
+```bash
+docker compose --env-file .env.mq-local -p crm-rabbitmq-local build crm
+docker compose --env-file .env.mq-local -p crm-rabbitmq-local up -d
+docker compose --env-file .env.mq-local -p crm-rabbitmq-local ps
+```
+
+Open `http://localhost:8098/` and use the local administrator credentials from
+that file. RabbitMQ Management is at `http://127.0.0.1:15673/`; its credentials
+are `MQ_USER` and `MQ_PASSWORD` from the same file. An IP-filtered production
+HTTPS route for management can use the optional Compose file above.
+
+Run the broker integration test only against this isolated installation with
+its background publisher and workers stopped; the test checks that queues
+are empty before creating its own fixtures:
+
+```bash
+docker compose --env-file .env.mq-local -p crm-rabbitmq-local stop mq-publisher mq-worker-analytics mq-worker-files mq-worker-websocket
+docker compose --env-file .env.mq-local -p crm-rabbitmq-local cp extensions/studio-management/tests/RabbitMqIntegrationTest.php crm:/tmp/RabbitMqIntegrationTest.php
+docker compose --env-file .env.mq-local -p crm-rabbitmq-local exec -T -e STUDIO_MQ_TEST_ISOLATED=1 crm php /tmp/RabbitMqIntegrationTest.php
+docker compose --env-file .env.mq-local -p crm-rabbitmq-local up -d mq-publisher mq-worker-analytics mq-worker-files mq-worker-websocket
 ```
 
 `docker compose down` preserves the database and uploaded files. Removing the

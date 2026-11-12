@@ -82,6 +82,10 @@
         "image/*"
       ]
     },
+    "screenshotOptimizations": {
+      "type": "jsonObject",
+      "readOnly": true
+    },
     "screenshots": {
       "type": "attachmentMultiple",
       "view": "studio-management:views/sm-shift/fields/screenshots",

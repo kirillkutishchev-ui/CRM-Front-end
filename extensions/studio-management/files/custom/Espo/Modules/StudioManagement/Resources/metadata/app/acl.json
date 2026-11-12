@@ -24,7 +24,8 @@
     "smShiftRevisePermission",
     "smStaffAccessPermission",
     "smAnalyticsAccessPermission",
-    "smInvitationsPermission"
+    "smInvitationsPermission",
+    "smAccountOnboardingPermission"
   ],
   "valuePermissionHighestLevels": {
     "smShiftPreparePermission": "all",
@@ -33,7 +34,8 @@
     "smShiftRevisePermission": "all",
     "smStaffAccessPermission": "all",
     "smAnalyticsAccessPermission": "all",
-    "smInvitationsPermission": "yes"
+    "smInvitationsPermission": "yes",
+    "smAccountOnboardingPermission": "yes"
   },
   "permissionsStrictDefaults": {
     "smShiftPreparePermission": "not-set",
@@ -42,6 +44,7 @@
     "smShiftRevisePermission": "not-set",
     "smStaffAccessPermission": "not-set",
     "smAnalyticsAccessPermission": "not-set",
-    "smInvitationsPermission": "not-set"
+    "smInvitationsPermission": "not-set",
+    "smAccountOnboardingPermission": "not-set"
   }
 }
